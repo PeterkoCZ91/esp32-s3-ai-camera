@@ -57,7 +57,7 @@ extern void stopSDRecording();
 // --- VERZE FIRMWARU ---
 // Pevně daná verze firmwaru, která se použije v notifikaci.
 // Tím se řeší problém se zastaralou verzí načítanou z config.json.
-#define FIRMWARE_VERSION "3.11.0 (Detection improvements + ByteTrack + Live log + Time-lapse)"
+#define FIRMWARE_VERSION "3.12.2 (FOMO retrain on bbox dataset + LITE_MODE)"
 // --------------------
 
 // Global config instance
@@ -692,37 +692,20 @@ bool initCamera() {
     initZone8_9 = s->get_reg(s, 0x568c, 0xff);
     Serial.printf("📷 Zone weight verify: 0x5688=0x%02X(want 0x11) 0x568c=0x%02X(want 0xEE)\n", initZone0_1, initZone8_9);
 
-    // --- OV3660 advanced features (init-time only, SCCB free) ---
-    // These features are not exposed via sensor_t API but are documented in OV3660 datasheet.
-    // Runtime writes would fail due to captureTask SCCB contention.
+    // --- OV3660 advanced ISP features (init-time only, SCCB free) ---
+    s->set_reg(s, 0x5000, 0xff, 0xA7);  // ISP Control: LENC+GMA+BPC+WPC+COLOR+AWB
+    s->set_reg(s, 0x5001, 0xff, 0xA3);  // ISP Control 2: SDE+UV_AVG+AWB_GAIN
+    s->set_reg(s, 0x5025, 0x03, 0x03);  // Auto BPC/WPC adaptation
 
-    // ISP Control 0x5000 — bit[7]=LENC, bit[6]=GMA, bit[5]=BPC, bit[2]=WPC, bit[1]=COLOR, bit[0]=AWB
-    // Default 0xA7 — keep BPC/WPC/GMA/LENC enabled (already set via sensor API but enforce here)
-    s->set_reg(s, 0x5000, 0xff, 0xA7);
+    // 2D Noise Reduction (0x5580) DISABLED — writing 0x40 to this register causes
+    // inverted/negative image on this OV3660 revision. Confirmed by binary search
+    // debug: all other ISP regs are safe, only 0x5580 triggers inversion.
+    // Registers 0x5583/0x5584 (Y/UV denoise thresholds) also skipped as they
+    // depend on 0x5580 NR enable bit.
+    // Trade-off: slightly noisier image in low-light/IR. Acceptable for person detection.
 
-    // ISP Control 0x5001 — bit[7]=SDE, bit[5]=SCALE, bit[2]=UV_AVG, bit[1]=COLOR_MATRIX, bit[0]=AWB_GAIN
-    // Default 0x83 — enable SDE (Special Digital Effects: contrast/saturation/brightness)
-    s->set_reg(s, 0x5001, 0xff, 0xA3);  // 0xA3 = SDE + UV_AVG + AWB_GAIN
-
-    // ISP Control 0x5025 — bit[1]=BlackPixelCancel auto, bit[0]=WhitePixelCancel auto
-    s->set_reg(s, 0x5025, 0x03, 0x03);  // Enable auto BPC/WPC adaptation
-
-    // 2D Noise Reduction (UV denoise) 0x5580-0x558B
-    // 0x5580 bit[6]=NoiseReduction enable
-    s->set_reg(s, 0x5580, 0x40, 0x40);  // Enable 2D noise reduction
-    // 0x5583 = Y noise threshold (lower = more aggressive denoise)
-    s->set_reg(s, 0x5583, 0xff, 0x10);  // Mild Y denoise
-    // 0x5584 = UV noise threshold
-    s->set_reg(s, 0x5584, 0xff, 0x10);  // Mild UV denoise
-
-    // De-noise / sharpening manual control 0x5308 bit[6]=manual_denoise, bit[5]=manual_sharpen
-    // Let auto handle it (already 0)
-
-    // Verify writes
     int reg5000 = s->get_reg(s, 0x5000, 0xff);
-    int reg5580 = s->get_reg(s, 0x5580, 0xff);
-    Serial.printf("📷 ISP advanced: 0x5000=0x%02X(want 0xA7) 0x5580=0x%02X(NR bit6 want 0x40)\n",
-                  reg5000, reg5580);
+    Serial.printf("📷 ISP advanced: 0x5000=0x%02X(want 0xA7), NR disabled (0x5580 causes inversion)\n", reg5000);
 
     Serial.println("📷 Camera initialized (brightness=3, ae_level=5, zone-weighted AEC, 2D-NR, BPC/WPC auto)");
     // NOTE: updateCameraProfile() called from setup() AFTER initIRControl() (LTR-308 init)
@@ -1249,12 +1232,20 @@ void handleTelegramCommand(const String& text) {
     }
 }
 
-// Poll Telegram getUpdates API for incoming commands
+// Poll Telegram getUpdates API for incoming commands.
+// Heap-optimized: fixed char[] URL, StaticJsonDocument, zero-copy text,
+// long-vs-long chat_id compare. See config.h TELEGRAM_POLL_INTERVAL_MS.
 void checkTelegramUpdates() {
+    long expected_chat_id = atol(config.telegram_chat_id.c_str());
+
     HTTPClient http;
-    String url = "https://api.telegram.org/bot" + config.telegram_bot_token +
-                 "/getUpdates?offset=" + String(telegram_last_update_id + 1) +
-                 "&timeout=0&limit=5";
+
+    char url[256];
+    snprintf(url, sizeof(url),
+             "https://api.telegram.org/bot%s/getUpdates?offset=%ld&timeout=0&limit=5",
+             config.telegram_bot_token.c_str(),
+             telegram_last_update_id + 1);
+
     http.begin(url);
     http.setTimeout(3000);
 
@@ -1270,7 +1261,7 @@ void checkTelegramUpdates() {
     String payload = http.getString();
     http.end();
 
-    DynamicJsonDocument doc(4096);
+    StaticJsonDocument<1536> doc;
     DeserializationError err = deserializeJson(doc, payload);
     if (err) {
         Serial.printf("📱 Telegram getUpdates: JSON parse error: %s\n", err.c_str());
@@ -1286,21 +1277,19 @@ void checkTelegramUpdates() {
             telegram_last_update_id = update_id;
         }
 
-        // Extract message
         JsonObject message = update["message"];
         if (message.isNull()) continue;
 
         long chat_id = message["chat"]["id"].as<long>();
-        String text = message["text"].as<String>();
 
-        // Security: only process messages from authorized chat
-        if (String(chat_id) != config.telegram_chat_id) {
+        if (chat_id != expected_chat_id) {
             Serial.printf("📱 Telegram: ignored message from chat %ld\n", chat_id);
             continue;
         }
 
-        if (text.length() > 0) {
-            handleTelegramCommand(text);
+        const char* text = message["text"];
+        if (text != nullptr && text[0] != '\0') {
+            handleTelegramCommand(String(text));
         }
     }
 }
@@ -1311,8 +1300,8 @@ void telegramTask(void* param) {
   Serial.println("📱 Telegram async task started (bidirectional)");
 
   while (true) {
-    // Wait for outgoing message OR 5s timeout for polling incoming commands
-    if (xQueueReceive(telegramQueue, &msg, pdMS_TO_TICKS(5000)) == pdTRUE) {
+    // Wait for outgoing message OR TELEGRAM_POLL_INTERVAL_MS timeout for polling incoming commands
+    if (xQueueReceive(telegramQueue, &msg, pdMS_TO_TICKS(TELEGRAM_POLL_INTERVAL_MS)) == pdTRUE) {
       if (WiFi.status() != WL_CONNECTED) {
         Serial.println("📱 Telegram: WiFi not connected, dropping message");
         continue;
@@ -1578,9 +1567,11 @@ void setup() {
   // Apply camera profile immediately now that LTR-308 is available
   updateCameraProfile();
 
-#ifdef INCLUDE_AUDIO
+#if defined(INCLUDE_AUDIO) && !defined(LITE_MODE_NO_RUNTIME_TASKS)
   // Initialize Audio (I2S PDM Microphone) - Plain I2S mode
   initAudio();
+#elif defined(LITE_MODE_NO_RUNTIME_TASKS)
+  Serial.println("⚡ LITE_MODE: initAudio() skipped (frees ~8KB SRAM I2S DMA)");
 #endif
 
 #ifdef INCLUDE_MQTT
@@ -1588,9 +1579,11 @@ void setup() {
   initMQTT();
 #endif
 
-#ifdef INCLUDE_TIMELAPSE
+#if defined(INCLUDE_TIMELAPSE) && !defined(LITE_MODE_NO_RUNTIME_TASKS)
   // Start time-lapse task (periodic JPEG snapshots to SD)
   startTimelapseTask();
+#elif defined(LITE_MODE_NO_RUNTIME_TASKS)
+  Serial.println("⚡ LITE_MODE: timelapse task skipped (frees ~4KB SRAM stack)");
 #endif
 
   Serial.println("\n===========================================");

@@ -13,9 +13,26 @@
 #define INCLUDE_TELEGRAM      // Telegram notifications (text, photo, AVI document)
 #define INCLUDE_MQTT          // MQTT + Home Assistant discovery
 #define INCLUDE_AUDIO         // I2S/PDM microphone + audio streaming
-#define INCLUDE_PERSON_DETECT // Edge Impulse FOMO person detection
+#define INCLUDE_PERSON_DETECT // Edge Impulse YOLO-Pro Pico person detection
 #define INCLUDE_SD_RECORDING  // SD card AVI recording + auto-delete
 #define INCLUDE_TIMELAPSE     // Periodic JPEG snapshots to SD
+
+// --- v3.12 LITE MODE (runtime task suppression) ---
+// When defined: skips starting audio I2S, audio_httpd:82, RTSP server,
+// recording task, and timelapse task at boot. Code stays compiled,
+// only runtime starts are bypassed. Frees ~42 KB SRAM contiguous heap
+// to fix Telegram SSL handshake failures (needs ~30 KB max_alloc_heap)
+// caused by fragmentation in default config (was max_alloc_heap≈32 KB).
+// Use case: API + Telegram only, no live streaming or recording features.
+#define LITE_MODE_NO_RUNTIME_TASKS
+
+// Telegram getUpdates polling interval (ms).
+// Each poll allocates ~5 KB on heap (HTTPClient + TLS + JSON) and leaves a
+// ~1-2 KB residual fragment. At 5s polling this caused ~10 KB/min heap drift
+// observed in v3.12.2 field testing (free_heap 102KB -> 50KB in 5min idle).
+// 15s is a compromise: bot commands still feel responsive (~8s avg latency),
+// drift drops to ~1.5-2 KB/min and heap plateaus >90 KB.
+#define TELEGRAM_POLL_INTERVAL_MS 15000
 
 // Configuration Struct
 struct Config {

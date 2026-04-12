@@ -41,7 +41,7 @@
 
 #include <stdint.h>
 #include "model_metadata.h"
-#include "tflite-model/tflite_learn_899019_5_compiled.h"
+#include "tflite-model/tflite_learn_899019_9_compiled.h"
 #include "edge-impulse-sdk/classifier/ei_model_types.h"
 #include "edge-impulse-sdk/classifier/inferencing_engines/engines.h"
 #include "edge-impulse-sdk/classifier/postprocessing/ei_postprocessing_common.h"
@@ -56,14 +56,14 @@ ei_dsp_config_image_t ei_dsp_config_899019_3 = {
     1, // int length of axes
     NULL, // named axes
     0, // size of the named axes array
-    "RGB" // select channels
+    "Grayscale" // select channels
 };
 
 const uint8_t ei_dsp_blocks_899019_1_size = 1;
 ei_model_dsp_t ei_dsp_blocks_899019_1[ei_dsp_blocks_899019_1_size] = {
     { // DSP block 3
         3,
-        12288, // output size
+        4096, // output size
         &extract_image_features, // DSP function pointer
         (void*)&ei_dsp_config_899019_3, // pointer to config struct
         ei_dsp_config_899019_3_axes, // array of offsets into the input stream, one for each axis
@@ -73,43 +73,43 @@ ei_model_dsp_t ei_dsp_blocks_899019_1[ei_dsp_blocks_899019_1_size] = {
         nullptr, // data normalization config
     }
 };
-const ei_config_tflite_eon_graph_t ei_config_graph_899019_5 = {
+const ei_config_tflite_eon_graph_t ei_config_graph_899019_9 = {
     .implementation_version = 1,
-    .model_init = &tflite_learn_899019_5_init,
-    .model_invoke = &tflite_learn_899019_5_invoke,
-    .model_reset = &tflite_learn_899019_5_reset,
-    .model_input = &tflite_learn_899019_5_input,
-    .model_output = &tflite_learn_899019_5_output,
+    .model_init = &tflite_learn_899019_9_init,
+    .model_invoke = &tflite_learn_899019_9_invoke,
+    .model_reset = &tflite_learn_899019_9_reset,
+    .model_input = &tflite_learn_899019_9_input,
+    .model_output = &tflite_learn_899019_9_output,
 };
 
-const uint8_t ei_output_tensors_indices_899019_5[1] = { 0 };
-const uint8_t ei_output_tensors_size_899019_5 = 1;
-ei_learning_block_config_tflite_graph_t ei_learning_block_config_899019_5 = {
+const uint8_t ei_output_tensors_indices_899019_9[1] = { 0 };
+const uint8_t ei_output_tensors_size_899019_9 = 1;
+ei_learning_block_config_tflite_graph_t ei_learning_block_config_899019_9 = {
     .implementation_version = 1,
-    .block_id = 5,
-    .output_tensors_indices = ei_output_tensors_indices_899019_5,
-    .output_tensors_size = ei_output_tensors_size_899019_5,
+    .block_id = 9,
+    .output_tensors_indices = ei_output_tensors_indices_899019_9,
+    .output_tensors_size = ei_output_tensors_size_899019_9,
     .quantized = 1,
     .compiled = 1,
-    .graph_config = (void*)&ei_config_graph_899019_5,
+    .graph_config = (void*)&ei_config_graph_899019_9,
     .dequantize_output = 0,
 };
 
 const uint8_t ei_learning_blocks_899019_1_size = 1;
-const uint32_t ei_learning_block_899019_5_inputs[1] = { 3 };
-const uint8_t ei_learning_block_899019_5_inputs_size = 1;
+const uint32_t ei_learning_block_899019_9_inputs[1] = { 3 };
+const uint8_t ei_learning_block_899019_9_inputs_size = 1;
 const ei_learning_block_t ei_learning_blocks_899019_1[ei_learning_blocks_899019_1_size] = {
     {
-        5,
+        9,
         &run_nn_inference,
-        (void*)&ei_learning_block_config_899019_5,
+        (void*)&ei_learning_block_config_899019_9,
         EI_CLASSIFIER_IMAGE_SCALING_NONE,
-        ei_learning_block_899019_5_inputs,
-        ei_learning_block_899019_5_inputs_size,
+        ei_learning_block_899019_9_inputs,
+        ei_learning_block_899019_9_inputs_size,
     },
 };
 
-ei_fill_result_fomo_i8_config_t ei_fill_result_fomo_i8_config_899019_5 = {
+ei_fill_result_fomo_i8_config_t ei_fill_result_fomo_i8_config_899019_9 = {
     .threshold = 0.5,
     .out_width = 8,
     .out_height = 8,
@@ -121,14 +121,14 @@ ei_fill_result_fomo_i8_config_t ei_fill_result_fomo_i8_config_899019_5 = {
 const size_t ei_postprocessing_blocks_899019_1_size = 1;
 const ei_postprocessing_block_t ei_postprocessing_blocks_899019_1[ei_postprocessing_blocks_899019_1_size] = {
     {
-        .block_id = 5,
+        .block_id = 9,
         .type = EI_CLASSIFIER_MODE_OBJECT_DETECTION,
         .init_fn = NULL,
         .deinit_fn = NULL,
         .postprocess_fn = &process_fomo_i8,
         .display_fn = NULL,
-        .config = (void*)&ei_fill_result_fomo_i8_config_899019_5,
-        .input_block_id = 5
+        .config = (void*)&ei_fill_result_fomo_i8_config_899019_9,
+        .input_block_id = 9
     },
 };
 
@@ -142,9 +142,9 @@ const ei_impulse_t impulse_899019_1 = {
     .project_name = "Person detection FOMO",
     .impulse_id = 1,
     .impulse_name = "Image data, Image, Object Detection (Images)",
-    .deploy_version = 5,
+    .deploy_version = 7,
 
-    .nn_input_frame_size = 12288,
+    .nn_input_frame_size = 4096,
     .raw_sample_count = 4096,
     .raw_samples_per_frame = 1,
     .dsp_input_frame_size = 4096 * 1,

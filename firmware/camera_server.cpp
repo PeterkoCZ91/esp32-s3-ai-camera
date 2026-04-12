@@ -3051,13 +3051,14 @@ void startCameraServer() {
         Serial.println("❌ Failed to start stream server");
     }
 
+#ifndef LITE_MODE_NO_RUNTIME_TASKS
     // Start Audio Server (Port 82)
     Serial.println("Starting audio server (Port 82)...");
     if (httpd_start(&audio_httpd, &audio_config) == ESP_OK) {
         httpd_register_uri_handler(audio_httpd, &audio_stream_uri);
         httpd_register_uri_handler(audio_httpd, &audio_stream_options_uri);
     }
-    
+
     // Start RTSP Server
     Serial.println("Starting RTSP server...");
     if (rtspServer.init()) {
@@ -3065,6 +3066,9 @@ void startCameraServer() {
     } else {
         Serial.println("❌ Failed to start RTSP server");
     }
+#else
+    Serial.println("⚡ LITE_MODE: audio_httpd:82 (~8KB) + RTSP (~16KB) skipped");
+#endif
 
     // Start Central Camera Capture Task (feeds both RTSP and MJPEG)
     Serial.println("Starting Camera Capture Task...");
@@ -3090,6 +3094,7 @@ void startCameraServer() {
 
         Serial.println("Camera web server started successfully");
 
+#ifndef LITE_MODE_NO_RUNTIME_TASKS
         // Start Recording Task (AVI with audio — needs extra stack for PCM buffer)
         xTaskCreatePinnedToCore(
             recordingTask,     // Task function
@@ -3101,6 +3106,9 @@ void startCameraServer() {
             1                  // Core 1 (same as capture to avoid cache thrashing?) or 0
         );
         Serial.println("✅ Recording task queued");
+#else
+        Serial.println("⚡ LITE_MODE: recording task skipped (~6KB stack)");
+#endif
     } else {
         Serial.println("Failed to start camera web server");
     }

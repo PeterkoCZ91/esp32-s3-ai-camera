@@ -377,7 +377,7 @@ EI_IMPULSE_ERROR run_vlm_inference(
     if (strcmp(block_config->model, "clip-vit-large-patch14_ggml-model-q8_0") == 0) {
         EI_LOGD("Using CLIP model payload builder\n");
         payload = build_json_payload_clip(impulse, *block_config, buffer_out, size_out);
-    } else if (strcmp(block_config->model, "gemma-3-4b-it-q4_0") == 0) {
+    } else if (strcmp(block_config->model, "Qwen3VL-8B-Instruct-Q8_0") == 0) {
         EI_LOGD("Using VLM model payload builder\n");
         payload = build_json_payload_vlm(*block_config, buffer_out, size_out);
     }
@@ -412,7 +412,17 @@ EI_IMPULSE_ERROR run_vlm_inference(
     // Get the end time
     uint64_t ctx_end_us = ei_read_timer_us();
 
-    result->timing.classification_us = ctx_end_us - ctx_start_us;
+    // Prefer libcurl wall-clock transfer time so blocked network I/O is included.
+    curl_off_t curl_total_time_us = 0;
+    CURLcode timing_res = curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME_T, &curl_total_time_us);
+    if (timing_res == CURLE_OK && curl_total_time_us > 0) {
+        result->timing.classification_us = static_cast<uint64_t>(curl_total_time_us);
+    }
+    else {
+        // Fallback for environments where curl timing info is not available.
+        result->timing.classification_us = ctx_end_us - ctx_start_us;
+    }
+
     result->timing.classification = (int)(result->timing.classification_us / 1000);
 
     EI_LOGD("VLM Connector DSP time: %d ms\r\n", result->timing.dsp);
@@ -431,7 +441,7 @@ EI_IMPULSE_ERROR run_vlm_inference(
     if (strcmp(block_config->model, "clip-vit-large-patch14_ggml-model-q8_0") == 0) {
         parse_res = parse_response_to_result_clip(response, result, block_config, impulse, learn_block_index);
     }
-    else if (strcmp(block_config->model, "gemma-3-4b-it-q4_0") == 0) {
+    else if (strcmp(block_config->model, "Qwen3VL-8B-Instruct-Q8_0") == 0) {
         parse_res = parse_json_to_result_vlm(response, result, block_config, impulse, learn_block_index);
     }
 
